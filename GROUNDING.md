@@ -33,12 +33,14 @@ Known agents (numbering from existing specs; reconcile as new specs are written)
 | 1 | Menu Cost Calculator | Builds and maintains the recipe database; computes plate cost and food-cost % per menu item | not yet written |
 | 2 | Invoice Processor | Extracts line items from supplier invoices; normalizes prices; drafts QuickBooks bills | not yet written |
 | 3 | Inventory Burn Calculator | Nightly theoretical-vs-actual ingredient consumption; flags waste/theft | `agent3_inventory_burn_calculator.md` |
+| 4 | Daily Sales Close & Bookkeeping | Nightly Toast→QBO daily sales journal; clearing-account & deposit reconciliation; monthly sales-tax true-up | `agent4_daily_sales_close.md` |
+| 5 | Tip & Payroll Compliance | Per-shift tip-pool distribution → payroll-ready file; FLSA/Chicago wage compliance; FICA tip credit | `agent5_tip_payroll_compliance.md` |
 | 6 | Vendor Price Tracker | Watches normalized invoice prices for creep, spikes, and receiving shorts | not yet written |
-| — | Daily P&L Briefing | Morning report rolling up sales, food cost, waste | not yet written |
+| 7 | Daily P&L Briefing | Morning report rolling up sales, food cost, labor, waste | not yet written |
 
-> ⚠️ **Open issue:** the Agent 3 spec refers to both "Menu Cost Calculator (Agent 1)" and "Daily P&L Briefing (Agent 1)". The roster above treats Menu Cost Calculator as Agent 1 and leaves Daily P&L Briefing unnumbered until resolved.
+> **Resolved (2026-06-13):** Menu Cost Calculator is **Agent 1**; the Daily P&L Briefing is **Agent 7**. (Earlier drafts of the Agent 3 spec called both "Agent 1" — that conflict is now closed.)
 
-**Dependency spine:** Invoice Processor (2) and Menu Cost Calculator (1) are the foundation — they produce the normalized purchase data and the recipe database that everything downstream (3, 6, P&L) consumes. Build and stabilize them first.
+**Dependency spine:** Invoice Processor (2), Menu Cost Calculator (1), and Daily Sales Close (4) are the foundation — they produce the normalized purchase data, the recipe database, and the correct revenue/tax/tips data that everything downstream (3, 5, 6, 7) consumes. Agent 4 is specifically upstream of Agent 5's tip-liability distribution and of the P&L Briefing. Build and stabilize the foundation first.
 
 ---
 
@@ -80,18 +82,18 @@ QuickBooks Online (QBO) is the source of truth for **money**: what was purchased
 "QuickBooks import" in our products means two directions:
 
 1. **Read** — chart of accounts, vendor list, historical bills, P&L reports (for the Daily Briefing and for baselining food cost).
-2. **Write** — drafting **Bills** from processed supplier invoices (with the invoice PDF attached), creating Vendors that don't exist yet. This is the highest-trust operation we perform.
+2. **Write** — two entity types, both staged for human approval (below): **Bills** from processed supplier invoices (Agent 2, with the invoice PDF attached) and the **daily sales JournalEntry** from the Toast close (Agent 4), plus creating Vendors that don't exist yet. These are the highest-trust operations we perform.
 
 ### API mechanics
 
 - REST + JSON, OAuth2 authorization-code flow; each client company = one `realmId`. Intuit provides sandbox companies — develop against sandbox, always.
-- Key entities: `Vendor`, `Bill` (line items via `AccountBasedExpenseLineDetail`), `Attachable` (attach the source invoice PDF to the Bill), `Account` (chart of accounts), `Item`, `Class`/`Department` (multi-location tracking), Reports API (`ProfitAndLoss`).
+- Key entities: `Vendor`, `Bill` (line items via `AccountBasedExpenseLineDetail`), `JournalEntry` (the daily sales journal from Agent 4), `Attachable` (attach the source invoice PDF to the Bill), `Account` (chart of accounts), `Item`, `Class`/`Department` (multi-location tracking), Reports API (`ProfitAndLoss`).
 - Rate limits exist per realm (hundreds of requests/minute); use the batch endpoint for bulk writes.
 
 ### Write rules (non-negotiable)
 
-- **A Bill posts the moment it's created — there is no draft state in QBO.** Therefore: every Bill is staged for human approval *outside* QBO (approval email / review sheet) and only written after the owner approves. Per-vendor auto-approve thresholds may be added later, opt-in only.
-- **Idempotency:** set `DocNumber` = vendor invoice number and query for it before creating. Never create a duplicate bill for the same vendor + invoice number.
+- **A Bill — and a JournalEntry — posts the moment it's created; there is no draft state in QBO.** Therefore: every Bill and every daily sales journal is staged for human approval *outside* QBO (approval email / review sheet) and only written after the owner approves. Per-vendor auto-approve thresholds may be added later, opt-in only.
+- **Idempotency:** set `DocNumber` = vendor invoice number (Bills) or business date (the daily sales JournalEntry) and query for it before creating. Never create a duplicate bill for the same vendor + invoice number, or a second sales journal for the same business date.
 - **Never delete or modify** existing QBO transactions the agent didn't create.
 
 ### Chart-of-accounts reality
@@ -122,6 +124,8 @@ The bank account is the **ground truth check** on both Toast and QuickBooks. Pri
 - **Third-party delivery** (DoorDash, Uber Eats, Grubhub) pays out weekly, net of commission, in separate deposits. Match against the platform's payout statement period, not daily sales.
 - **Cash deposits** are manual and irregular — flag gaps gently (missing cash deposits are sensitive; report, don't accuse).
 - What this catches: missing/short deposits, processing-fee creep, chargebacks, delivery-platform commission errors.
+
+> **Owned by:** card-batch and clearing-account reconciliation lives in the Daily Sales Close (Agent 4); tip-payout reconciliation against the tips-payable liability lives in Tip & Payroll Compliance (Agent 5). This section is the shared logic both rely on.
 
 ---
 
@@ -230,11 +234,15 @@ This document was written 2026-06-11 from training knowledge, not live verificat
 
 - [ ] Toast standard API access: availability, pricing, scopes, rate limits (Toast changes this program)
 - [ ] Toast nightly export: current CSV file set and schemas
-- [ ] QBO API: current minor version, rate limits, any Bill/Attachable changes
+- [ ] Toast Labor API: scopes for shifts/hours/tips (needed by Agents 4–5)
+- [ ] QBO API: current minor version, rate limits, any Bill/Attachable/JournalEntry changes
 - [ ] Plaid (or chosen aggregator): pricing and bank coverage
 - [ ] Chicago/Cook/IL tax rates and MPEA zone boundaries — current rates
-- [ ] Chicago minimum wage and tipped-wage schedule — current figures
-- [ ] Per client: QuickBooks **Online vs Desktop**; Toast plan tier; which bank
+- [ ] Chicago minimum wage and tipped-wage (tip-credit phase-out) schedule — current figures
+- [ ] DOL/FLSA tip-pool, 80/20 dual-jobs, and overtime regular-rate rules — current (Agent 5)
+- [ ] Payroll processor import formats (Gusto/ADP/Paychex) — current templates (Agent 5)
+- [ ] Delivery-platform marketplace-facilitator sales-tax remittance rules by state/platform (Agent 4 tax true-up)
+- [ ] Per client: QuickBooks **Online vs Desktop**; Toast plan tier; which bank; payroll processor
 
 ---
 

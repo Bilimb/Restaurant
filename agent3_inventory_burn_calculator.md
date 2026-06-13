@@ -69,7 +69,7 @@ Small restaurants rarely do daily inventory counts — it takes too long and req
 - Depends on **Menu Cost Calculator** for recipe data
 - Depends on **Invoice Processor** for purchase data
 - Feeds into **Vendor Price Tracker** (Agent 6) — if a variance is traced to a receiving short, it's flagged there too
-- Feeds into **Daily P&L Briefing** (Agent 1) — waste dollar figure rolls up into the morning report
+- Feeds into **Daily P&L Briefing** (Agent 7) — waste dollar figure rolls up into the morning report
 
 ---
 
