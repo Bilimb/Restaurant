@@ -1,8 +1,12 @@
-# Grounding Document — AI Agents for Local Chicago Restaurants
+# Grounding Document — Restaurant Management Platform
 
-**Purpose:** This is the shared context document for every AI agent (and every AI coding session) working in this repo. Read it before designing or implementing anything. It defines who the customer is, the systems we integrate with (Toast, QuickBooks, bank), the two core calculation engines (menu/ingredient costing and invoice processing), the shared data model that ties them together, and the rules every agent must follow.
+**Purpose:** This is the shared context document for every AI agent (and every AI coding session) working in this repo. Read it before designing or implementing anything. It defines who the customer is, the systems we integrate with (Toast, bank), the core calculation engines, the shared data model, and the rules every agent must follow.
 
-Individual agent specs (e.g. `agent3_inventory_burn_calculator.md`) describe *what one agent does*. This document describes *the world all agents live in*.
+The platform is a full restaurant management system — not middleware. It owns inventory, reservations, CRM, loyalty, bookkeeping, and accounting natively. QuickBooks is optional — for restaurants that already have it, we sync to it; for restaurants that don't, we replace it entirely.
+
+See `ARCHITECTURE.md` for the full system architecture, data layer design, and agent map.
+
+Individual agent specs (`agent1_*.md` through `agent13_*.md`) describe what one agent does. This document describes the world all agents live in.
 
 ---
 
@@ -12,35 +16,52 @@ Independent Chicago restaurants, typically:
 
 - 1–3 locations, $800K–$3M annual revenue per location
 - Owner-operator or a single GM doing the back office; **no IT staff, no bookkeeper on site**
-- Toast POS at the counter, QuickBooks Online for accounting, **Excel for everything else**: recipe costs, inventory counts, vendor price lists, schedules
+- Toast POS at the counter; may or may not have QuickBooks; **Excel for everything else**: recipe costs, inventory counts, vendor price lists, schedules
+- Purchasing happens through a mix of broadline vendors (Sysco, US Foods), cash-and-carry stores (Costco, Restaurant Depot), local grocery runs (Jewel, Mariano's), and farmers markets — not exclusively formal vendor orders
 - The owner's spare attention is the scarcest resource in the building
 
 **Design consequences:**
 
-1. **Excel is the user interface, not the database.** Owners live in spreadsheets. Agents deliver outputs as Excel files (or simple emails/texts) and accept inputs as Excel files. Internally, agents keep a canonical structured store (SQLite/Postgres/structured workbook — see §7); never treat the owner's hand-edited sheet as the source of truth.
-2. **The 10-minute rule.** Nothing an agent asks of the owner may take more than ~10 minutes per week (e.g. the weekly spot-count of 10 high-value items in Agent 3). If a workflow needs more human input than that, redesign it.
-3. **Read-only first, write with approval.** Agents earn trust by delivering reports before they touch anything. Any write into a system of record (QuickBooks especially) requires explicit human approval per transaction or per batch. No agent ever moves money.
+1. **One dashboard, not Excel.** The platform is the interface. Owners see everything through the web dashboard or mobile app. Excel export is available for accountants and old-school owners but is not the primary workflow.
+2. **The 10-minute rule.** Nothing an agent asks of the owner may take more than ~10 minutes per week. If a workflow needs more human input than that, redesign it.
+3. **Read-only first, write with approval.** Agents earn trust by delivering reports before they touch anything. Any financial write requires explicit human approval per transaction or per batch. No agent ever moves money.
 4. **Plain language.** Outputs are written for a restaurant owner, not an accountant. Dollar impact first, jargon never ("You lost ~$340 of chicken this week vs. what you sold"), with detail available below.
+5. **QB is optional.** Most small restaurants do not have QuickBooks. The platform runs their full bookkeeping natively. For restaurants that do have QB, the platform syncs to it automatically.
 
 ---
 
 ## 2. The Agent Platform
 
-Known agents (numbering from existing specs; reconcile as new specs are written):
+13 long-running agents organized across three pillars. Each has its own spec file. See `ARCHITECTURE.md` for the full dependency map and data flow.
 
-| # | Agent | Role | Spec |
-|---|-------|------|------|
-| 1 | Menu Cost Calculator | Builds and maintains the recipe database; computes plate cost and food-cost % per menu item | not yet written |
-| 2 | Invoice Processor | Extracts line items from supplier invoices; normalizes prices; drafts QuickBooks bills | not yet written |
-| 3 | Inventory Burn Calculator | Nightly theoretical-vs-actual ingredient consumption; flags waste/theft | `agent3_inventory_burn_calculator.md` |
-| 4 | Daily Sales Close & Bookkeeping | Nightly Toast→QBO daily sales journal; clearing-account & deposit reconciliation; monthly sales-tax true-up | `agent4_daily_sales_close.md` |
-| 5 | Tip & Payroll Compliance | Per-shift tip-pool distribution → payroll-ready file; FLSA/Chicago wage compliance; FICA tip credit | `agent5_tip_payroll_compliance.md` |
-| 6 | Vendor Price Tracker | Watches normalized invoice prices for creep, spikes, and receiving shorts | not yet written |
-| 7 | Daily P&L Briefing | Morning report rolling up sales, food cost, labor, waste | not yet written |
+### Operations Pillar
+| # | Agent | Spec |
+|---|-------|------|
+| 1 | Inventory Guardian — stock levels, burn rate, ordering, waste, quick count tool | `agent1_inventory_guardian.md` |
+| 2 | Asset Intelligence — equipment, furniture, depreciation, maintenance, repair vs replace | `agent2_asset_intelligence.md` |
+| 3 | Labor & Scheduling — draft schedules, labor cost %, overtime alerts, no-show detection | `agent3_labor_scheduling.md` |
+| 4 | Menu Performance — menu engineering matrix, food cost per dish, daily specials from expiring stock | `agent4_menu_performance.md` |
+| 5 | Vendor & Procurement — purchase orders, receiving, delivery tracking, vendor scorecards | `agent5_vendor_procurement.md` |
+| 6 | Vendor Intelligence & Alt. Sourcing — price monitoring, alternative vendor search, retail benchmarking | `agent6_vendor_intelligence.md` |
+| 7 | Staff Performance — revenue per server, upsell rates, void tracking, training recommendations | `agent7_staff_performance.md` |
 
-> **Resolved (2026-06-13):** Menu Cost Calculator is **Agent 1**; the Daily P&L Briefing is **Agent 7**. (Earlier drafts of the Agent 3 spec called both "Agent 1" — that conflict is now closed.)
+### Financial Pillar
+| # | Agent | Spec |
+|---|-------|------|
+| 8 | Bookkeeping & Accounting — chart of accounts, bank reconciliation, P&L, balance sheet, cash flow | `agent8_bookkeeping_accounting.md` |
+| 9 | Financial Watchdog — daily P&L flash, food cost alerts, cash flow forecast, anomaly detection | `agent9_financial_watchdog.md` |
+| 10 | Invoice Processing — OCR capture from all formats, three-way match, duplicate detection, payment scheduling | `agent10_invoice_processing.md` |
+| 11 | Tips Management — card tip pool distribution, seniority-based rules, payroll sync, IRS compliance | `agent11_tips_management.md` |
 
-**Dependency spine:** Invoice Processor (2), Menu Cost Calculator (1), and Daily Sales Close (4) are the foundation — they produce the normalized purchase data, the recipe database, and the correct revenue/tax/tips data that everything downstream (3, 5, 6, 7) consumes. Agent 4 is specifically upstream of Agent 5's tip-liability distribution and of the P&L Briefing. Build and stabilize the foundation first.
+### Guest & Reputation Pillar
+| # | Agent | Spec |
+|---|-------|------|
+| 12 | Guest Relationship Manager — guest profiles, lapsed detection, loyalty, personalized campaigns, VIP alerts | `agent12_guest_relationship.md` |
+| 13 | Reputation Monitor — historical review analysis, real-time monitoring, response drafting, pattern detection | `agent13_reputation_monitor.md` |
+
+**Dependency spine:** Agent 8 (Bookkeeping) is the financial foundation — all financial agents read from it. Agent 1 (Inventory) feeds Agents 4, 5, 6, and 9. Agent 10 (Invoice Processing) feeds Agents 5, 6, and 8. Build and stabilize 1, 8, and 10 first.
+
+> **Note:** Earlier spec files (`agent3_inventory_burn_calculator.md`, `agent4_daily_sales_close.md`, `agent5_tip_payroll_compliance.md`) represent a prior, smaller agent design and are superseded by the 13-agent suite above.
 
 ---
 
@@ -75,9 +96,11 @@ Toast is the source of truth for **sales**: what was sold, when, for how much, a
 
 ---
 
-## 4. QuickBooks Import
+## 4. QuickBooks Integration (Optional)
 
-QuickBooks Online (QBO) is the source of truth for **money**: what was purchased, what was paid, and the P&L.
+**QuickBooks is not required.** The platform has native bookkeeping and accounting (Agent 8) that fully replaces QuickBooks for restaurants that do not have it. Most small restaurants do not have QuickBooks and do not need it.
+
+For restaurants that already have QuickBooks Online and want to keep it for their accountant, the platform syncs to it automatically. In this case:
 
 "QuickBooks import" in our products means two directions:
 
